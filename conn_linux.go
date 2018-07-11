@@ -3,26 +3,17 @@
 package vsock
 
 import (
-	"errors"
 	"net"
 	"os"
-	"time"
 
 	"golang.org/x/sys/unix"
-)
-
-var (
-	// errDeadlinesNotImplemented is returned by the SetDeadline family of methods
-	// for conn, because access is not yet available to the runtime network poller
-	// for non-standard sockets types.
-	// See: https://github.com/golang/go/issues/10565.
-	errDeadlinesNotImplemented = errors.New("vsock: deadlines not implemented")
 )
 
 var _ net.Conn = &conn{}
 
 // A conn is the net.Conn implementation for VM sockets.
 type conn struct {
+	// Most methods of net.Conn are implemented via this embedded file.
 	*os.File
 	localAddr  *Addr
 	remoteAddr *Addr
@@ -31,11 +22,6 @@ type conn struct {
 // LocalAddr and RemoteAddr implement the net.Conn interface for conn.
 func (c *conn) LocalAddr() net.Addr  { return c.localAddr }
 func (c *conn) RemoteAddr() net.Addr { return c.remoteAddr }
-
-// SetDeadline functions implement the net.Conn interface for conn.
-func (c *conn) SetDeadline(_ time.Time) error      { return errDeadlinesNotImplemented }
-func (c *conn) SetReadDeadline(_ time.Time) error  { return errDeadlinesNotImplemented }
-func (c *conn) SetWriteDeadline(_ time.Time) error { return errDeadlinesNotImplemented }
 
 // dialStream is the entry point for DialStream on Linux.
 func dialStream(cid, port uint32) (net.Conn, error) {
@@ -87,6 +73,12 @@ func dialStreamLinux(cfd fd, cid, port uint32) (net.Conn, error) {
 	remoteAddr := &Addr{
 		ContextID: cid,
 		Port:      port,
+	}
+
+	// Enable integration with runtime network poller for timeout support
+	// in Go 1.11+.
+	if err := cfd.SetNonblock(true); err != nil {
+		return nil, err
 	}
 
 	return &conn{
